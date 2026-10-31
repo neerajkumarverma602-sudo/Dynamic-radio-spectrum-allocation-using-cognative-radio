@@ -1,32 +1,104 @@
 # Project Overview
 
-## Purpose
-This project is a low-cost ESP8266 prototype that demonstrates Wi-Fi-aware adaptive channel selection. It observes visible Wi-Fi access points on channels 1, 6 and 11, calculates a heuristic channel score, applies hysteresis and coordinates channel switching between a transmitter and receiver over ESP-NOW.
+## About the project
+
+Dynamic Radio Spectrum Allocation Using Cognitive Radio is an ESP8266-based prototype that demonstrates how a wireless system can observe nearby Wi-Fi networks, compare available channels and adapt its communication channel. The implementation combines embedded hardware, direct wireless communication and MATLAB-based monitoring.
+
+Two NodeMCU ESP8266 boards form the system. One works as the transmitter and the other as the receiver. They exchange data and channel-control messages through ESP-NOW.
 
 ## System architecture
-The transmitter is a NodeMCU ESP8266 connected to a DHT11 on D5/GPIO14. The receiver is a second NodeMCU ESP8266 connected to a 16×2 I²C LCD using SDA=D2/GPIO4 and SCL=D1/GPIO5. The receiver sends serial telemetry to a computer, where MATLAB reads DATA_CSV records and displays six live plots.
+
+### Transmitter
+
+The transmitter is connected to a DHT11 sensor through D5/GPIO14. It scans visible Wi-Fi access points on channels 1, 6 and 11, records the access-point count and average RSSI for each channel, calculates channel scores and selects a preferred channel.
+
+### Receiver
+
+The receiver handles ESP-NOW data and channel-control messages. A 16×2 I²C LCD displays the active channel, temperature, access-point counts, average RSSI values, channel scores and packet statistics. The receiver also sends structured telemetry to a computer through USB serial.
+
+### MATLAB and Simulink
+
+MATLAB reads the receiver's serial data at 115200 baud and displays six live plots: temperature, received packet count, average RSSI, access-point count, channel score, and active channel with estimated packet loss.
+
+The Simulink model represents the channel-selection workflow with input blocks, comparison logic, a MATLAB Function block and Scope blocks. The ESP8266 firmware handles the live wireless communication and channel switching.
 
 ## Channel observation and scoring
-The transmitter scans visible Wi-Fi access points and groups them into channels 1, 6 and 11. It records access-point count and average RSSI for each candidate. The firmware calculates a heuristic score and prefers the lowest-scoring channel, subject to a 20% hysteresis margin.
 
-This is not a direct measurement of channel occupancy. Wi-Fi scan results do not capture all emitters, airtime utilisation, noise floor or non-Wi-Fi interference.
+The transmitter scans the selected Wi-Fi channels and groups visible access points by channel. It uses the number of detected access points and their average RSSI to calculate a score.
 
-## Channel-switch coordination
-The transmitter sends REQUEST with the target channel. The receiver replies READY. The transmitter sends COMMIT and both devices schedule the channel change. After changing channels and updating peer settings, the receiver sends SWITCHED. The firmware uses a coordinated delay before normal telemetry resumes.
+`signalPenalty(j) = (R(j) + 100) / 100`
 
-## MATLAB telemetry
-The receiver emits DATA_CSV records containing packet ID, active channel, temperature, received and lost packet counts, and per-channel AP count, average RSSI and score. MATLAB reads the serial stream at 115200 baud and plots temperature, received packets, RSSI, AP counts, channel scores, active channel and estimated packet loss.
+`S(j) = N(j) + 0.25 × signalPenalty(j)`
 
-## Wiring
-**TX DHT11:** VCC to 3V3, DATA to D5/GPIO14, GND to GND.
+- `N(j)`: number of detected access points on channel `j`
+- `R(j)`: average RSSI in dBm on channel `j`
+- The channel with the lowest score is the preferred candidate.
+- A 20% hysteresis condition guides channel changes and helps maintain a stable selection.
 
-**RX LCD:** SDA to D2/GPIO4, SCL to D1/GPIO5, GND to GND, VCC to a supply supported by the backpack. Confirm I²C pull-up voltage; ESP8266 GPIO is not 5 V tolerant. LCD address in the supplied code is 0x27.
+## Coordinated channel switching
 
-## Experimental caution
-The supplied dashboard screenshot shows a temperature trace around 330 °C. This is outside the DHT11 operating range and must not be reported as a valid temperature measurement. Recheck the raw serial fields, sensor wiring and MATLAB parser before recording results.
+The transmitter and receiver use a four-message ESP-NOW sequence:
 
-## Scope
-The implementation demonstrates selected cognitive-radio workflow concepts—observation, decision and reconfiguration—within a restricted Wi-Fi channel set. It is not a wideband SDR and does not perform raw IQ spectrum analysis. A more complete RF sensing stage would require a suitable SDR or dedicated RF front end.
+1. **REQUEST** — the transmitter proposes the target channel.
+2. **READY** — the receiver confirms that it is ready for the transition.
+3. **COMMIT** — the transmitter confirms the planned channel change.
+4. **SWITCHED** — the receiver confirms that the new channel is active.
 
-## Future development
-Potential extensions include repeated sensing, channel utilisation metrics, packet-delivery and latency measurements, more robust transaction-based switching recovery, humidity telemetry, and a Simulink model validated against hardware logs.
+Both boards follow the coordinated timing in the firmware before regular telemetry resumes.
+
+## Telemetry and LCD information
+
+The DHT11 is connected to the transmitter. The current firmware reads temperature approximately every two seconds and includes the latest reading in telemetry packets. The receiver rotates through five LCD pages:
+
+1. Active channel and temperature
+2. Access-point counts for channels 1, 6 and 11
+3. Average RSSI values
+4. Channel scores
+5. Received packet count and estimated lost packets
+
+The receiver's serial records begin with `DATA_CSV` and carry the packet ID, active channel, temperature, packet statistics and the channel observations used by MATLAB.
+
+## Hardware connections
+
+### DHT11 — transmitter
+
+| DHT11 | NodeMCU |
+|---|---|
+| VCC | 3V3 |
+| DATA | D5 / GPIO14 |
+| GND | GND |
+
+### 16×2 I²C LCD — receiver
+
+| LCD | NodeMCU |
+|---|---|
+| SDA | D2 / GPIO4 |
+| SCL | D1 / GPIO5 |
+| GND | GND |
+| VCC | Supply supported by the LCD backpack |
+
+The LCD address in the supplied receiver firmware is `0x27). Some modules use `0x3F`. The ESP8266 uses 3.3 V GPIO logic; check the LCD backpack's I²C pull-up voltage and use a suitable level shifter when required.
+
+## Firmware timing
+
+| Operation | Interval |
+|---|---:|
+| Wi-Fi spectrum rescan | 30,000 ms |
+| Telemetry transmission | 1,000 ms |
+| DHT11 temperature read | 2,000 ms |
+| REQUEST retry | 1,000 ms |
+| Coordinated switch delay | 6,000 ms |
+| LCD page interval | 3,500 ms |
+| LCD refresh check | 100 ms |
+
+## Project scope
+
+The prototype focuses on the cognitive-radio workflow of spectrum observation, channel assessment, decision-making and communication reconfiguration. Its channel assessment uses visible Wi-Fi access points on channels 1, 6 and 11. The DHT11 provides additional temperature telemetry, while the LCD and MATLAB dashboard make the system's operation easy to follow.
+
+## Experimental observations
+
+The project report records channel observations across three time intervals and shows the active-channel trace moving from channel 11 to channel 1 and then returning to channel 11. The recorded values are available in [Experimental Results](EXPERIMENTAL_RESULTS.md).
+
+## Further development
+
+The project provides a starting point for exploring machine-learning-based channel selection, cooperative spectrum sensing, additional telemetry, richer channel measurements and software-defined radio platforms.
