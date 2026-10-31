@@ -1,67 +1,126 @@
 # Dynamic Radio Spectrum Allocation Using Cognitive Radio
 
-An ESP8266-based educational prototype for Wi-Fi-aware adaptive channel selection, ESP-NOW communication, DHT11 telemetry, receiver LCD monitoring and MATLAB visualisation.
+This project explores how a wireless system can observe nearby Wi-Fi networks, compare available channels and choose a suitable channel for communication. The prototype brings together two NodeMCU ESP8266 boards, ESP-NOW communication, a DHT11 sensor, an I²C LCD and a MATLAB live dashboard.
 
-## Repository structure
+The main idea is simple: the transmitter checks Wi-Fi channels 1, 6 and 11, evaluates the networks it can see and selects a preferred channel. When a change is needed, the transmitter and receiver coordinate the transition so that communication can continue on the selected channel.
 
-- `transmitter_code.ino` — NodeMCU transmitter firmware with DHT11, Wi-Fi scanning on channels 1, 6 and 11, RSSI-based heuristic scoring, hysteresis and coordinated channel-switch requests.
-- `receiver_code.ino` — NodeMCU receiver firmware with ESP-NOW control/data reception, packet-gap estimation, LCD status pages and CSV serial telemetry.
-- `matlab_live_dashboard.m` — MATLAB live dashboard for serial telemetry and six plots.
-- `docs/PROJECT_OVERVIEW.md` — system architecture, theory, wiring, algorithm, protocol, limitations and validation guidance.
+## Project at a glance
 
-## Hardware connections
+- **Project:** Dynamic Radio Spectrum Allocation Using Cognitive Radio
+- **Platform:** Two NodeMCU ESP8266 boards
+- **Wireless link:** ESP-NOW
+- **Sensing input:** Nearby Wi-Fi access points and their RSSI values
+- **Additional sensor:** DHT11 temperature and humidity sensor
+- **Display:** 16×2 I²C LCD
+- **Monitoring:** MATLAB live dashboard
+- **Simulation:** MATLAB Simulink channel-selection model
+
+## How the system works
+
+1. The transmitter scans nearby Wi-Fi networks on channels 1, 6 and 11.
+2. It records the number of detected access points and their average RSSI on each channel.
+3. A score is calculated for every candidate channel. The channel with the lowest score becomes the preferred choice.
+4. A 20% hysteresis condition helps keep the selection steady when score differences are small.
+5. If a channel change is selected, both ESP8266 boards coordinate it through ESP-NOW messages: **REQUEST, READY, COMMIT and SWITCHED**.
+6. The transmitter sends temperature and channel information to the receiver.
+7. The receiver updates the LCD and forwards the telemetry to MATLAB over USB serial.
+
+## Hardware used
+
+| Component | Role |
+|---|---|
+| 2 × NodeMCU ESP8266 | Transmitter and receiver |
+| DHT11 | Temperature and humidity sensing |
+| 16×2 I²C LCD | Displays channel and communication information |
+| USB cable | Programming, power and serial connection to the computer |
+
+## Connections
 
 ### Transmitter — DHT11
-- VCC → 3V3
-- DATA → D5 / GPIO14
-- GND → GND
+
+| DHT11 pin | NodeMCU pin |
+|---|---|
+| VCC | 3V3 |
+| DATA | D5 / GPIO14 |
+| GND | GND |
 
 ### Receiver — 16×2 I²C LCD
-- SDA → D2 / GPIO4
-- SCL → D1 / GPIO5
-- GND → GND
-- VCC → supply supported by the LCD backpack
 
-**Electrical note:** ESP8266 GPIO uses 3.3 V logic and is not 5 V tolerant. Check the LCD backpack's I²C pull-up voltage and use a suitable level shifter if SDA/SCL are pulled up to 5 V. The supplied receiver firmware uses I²C address 0x27; some backpacks use 0x3F.
+| LCD pin | NodeMCU pin |
+|---|---|
+| SDA | D2 / GPIO4 |
+| SCL | D1 / GPIO5 |
+| GND | GND |
+| VCC | Supply supported by the LCD backpack |
 
-## Software requirements
-
-- Arduino IDE with ESP8266 Arduino Core
-- DHT sensor library
-- LiquidCrystal_I2C library
-- MATLAB
-
-## Setup
-
-1. Upload the receiver firmware and note its printed MAC address.
-2. Enter that address in `receiverMAC[]` in the transmitter firmware.
-3. Upload the transmitter firmware and note its printed MAC address.
-4. Enter that address in `transmitterMAC[]` in the receiver firmware.
-5. Confirm both boards start on the same channel and ESP-NOW initialises successfully.
-6. Connect the receiver to the computer by USB.
-7. Set the correct serial port in the MATLAB script (default COM5) and use 115200 baud.
-8. Close Arduino Serial Monitor before running MATLAB.
-
-The ESP-NOW link is direct. It does not require a Wi-Fi router or internet connection.
+The receiver firmware uses I²C address `0x27). Some LCD backpacks use `0x3F`. ESP8266 GPIO operates at 3.3 V, so check the LCD backpack's I²C signal voltage and use level shifting when required.
 
 ## Channel-selection method
 
-The transmitter scans visible Wi-Fi access points and groups observations into channels 1, 6 and 11. It records the access-point count and average RSSI for each candidate and calculates a heuristic score. The lowest score is preferred, subject to a 20% hysteresis condition. Channel changes are coordinated using REQUEST, READY, COMMIT and SWITCHED messages.
+For each candidate channel (j), the transmitter calculates a score using the detected access-point count and average RSSI:
 
-## Scope and limitations
+`signalPenalty(j) = (R(j) + 100) / 100`
 
-This is a Wi-Fi-aware adaptive channel-selection prototype demonstrating selected cognitive-radio workflow stages: observation, decision and reconfiguration. ESP8266 Wi-Fi scanning reports visible Wi-Fi access points; it does not measure total RF occupancy, noise floor, airtime utilisation, Bluetooth activity or arbitrary non-Wi-Fi emitters. It is not a wideband SDR. The channel score is a heuristic, not a calibrated spectrum-occupancy measurement.
+`S(j) = N(j) + 0.25 × signalPenalty(j)`
 
-The DHT11 provides auxiliary temperature telemetry and is not used by the channel-selection algorithm. Treat out-of-range sensor values as invalid and investigate the raw serial stream and sensor wiring.
+Here, `N(j)` is the number of detected access points and `R(j)` is their average RSSI in dBm. When a scan finds no access point on a channel, the firmware uses −100 dBm as the default RSSI and a zero signal penalty. The lowest score is preferred, with the 20% hysteresis condition guiding when the system changes from its current channel.
 
-## Validation
+## MATLAB live dashboard
 
-Compare fixed-channel operation on channels 1, 6 and 11 with adaptive operation under repeatable conditions. Record transmitted and received packet IDs, estimated packet loss, packet delivery ratio, latency, channel changes and recovery time. Retain raw logs and repeat trials before making performance claims.
+The receiver sends structured serial records beginning with `DATA_CSV` at 115200 baud. MATLAB reads the records and updates six live plots:
+
+- Temperature over time
+- Received packet count
+- Average RSSI for channels 1, 6 and 11
+- Detected access-point count
+- Channel scores
+- Active channel and estimated packet loss
+
+The Simulink model represents the channel-selection workflow using input values, decision logic and Scope blocks. The ESP8266 firmware performs the live wireless communication and channel switching.
+
+## Repository files
+
+| File | Description |
+|---|---|
+| `transmitter_code.ino` | Transmitter firmware for Wi-Fi scanning, channel scoring, DHT11 readings and coordinated switching |
+| `receiver_code.ino` | Receiver firmware for ESP-NOW messages, LCD display, packet tracking and serial telemetry |
+| `matlab_live_dashboard.m` | MATLAB script for serial data collection and live visualisation |
+| `docs/PROJECT_OVERVIEW.md` | System architecture, working process and hardware details |
+| `docs/EXPERIMENTAL_RESULTS.md` | Recorded channel observations and active-channel changes |
+
+## Getting started
+
+1. Open the receiver sketch in Arduino IDE, select the NodeMCU ESP8266 board and upload it.
+2. Open the receiver Serial Monitor and note the MAC address printed during startup.
+3. Enter the receiver MAC address in `receiverMAC[]` in the transmitter sketch.
+4. Upload the transmitter sketch and note its MAC address.
+5. Enter the transmitter MAC address in `transmitterMAC[]` in the receiver sketch, then upload the receiver sketch again.
+6. Start both boards and confirm that ESP-NOW communication is established.
+7. Connect the receiver to the computer through USB.
+8. In `matlab_live_dashboard.m`, set the serial port to the port assigned to the receiver. The script uses COM5 by default.
+9. Close Arduino Serial Monitor before starting the MATLAB dashboard so the serial port is available.
+
+## Libraries and software
+
+- Arduino IDE
+- ESP8266 Arduino Core
+- DHT sensor library
+- LiquidCrystal_I2C library
+- MATLAB
+- Simulink
 
 ## Project documentation
 
-See [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) for the system explanation and technical notes.
+The project report covers the background of Cognitive Radio, channel scoring, hardware design, firmware flow, MATLAB monitoring, Simulink modelling and experimental observations. The documentation in this repository provides a practical guide to the implemented prototype and its workflow.
 
-## Repository URL
+## Team
 
-https://github.com/neerajkumarverma602-sudo/Dynamic-radio-spectrum-allocation-using-cognative-radio
+- Deepak Kumar
+- Neeraj Kumar Verma
+- Sreyan Bhar
+
+**Project guide:** Dr. Amit Kumar, Assistant Professor, EECE Department, DIT University
+
+**Course:** Principles of Communication (ECN302)  
+**Department:** Electrical and Electronics & Communication Engineering, DIT University, Dehradun
+
